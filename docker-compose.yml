@@ -1,0 +1,69 @@
+---
+version: "3.3"
+services:
+  prometheus:
+    hostname: prometheus
+    image: prom/prometheus:v2.7.1
+    ports:
+     - "9090:9090"
+    networks:
+     - internal
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/clients.json:/prometheus/servicediscovery/clients.json
+    links:
+      - proxy
+
+  proxy:
+    hostname: proxy
+    build: .
+    restart: always
+    ports:
+     - "8080:8080"
+    environment:
+      - "RUN_MODE=server"
+      - "SERVER_SURVEY_TIMEOUT=4"
+    networks:
+     - internal
+
+  client_1:
+    build: .
+    restart: always
+    environment:
+      - "RUN_MODE=client"
+      - "CLIENT_PROXY_ENDPOINT=tcp://proxy:5050"
+      - "CLIENT_REMOTE_FQDN=sample_app"
+    links:
+      - proxy
+    networks:
+     - internal
+
+  client_2:
+    build: .
+    restart: always
+    environment:
+      - "RUN_MODE=client"
+      - "CLIENT_PROXY_ENDPOINT=tcp://proxy:5050"
+      - "CLIENT_REMOTE_FQDN=sample_app"
+    links:
+      - proxy
+    networks:
+     - internal
+
+  sample_app:
+    hostname: app
+    image: quay.io/brancz/prometheus-example-app:v0.1.0
+    restart: always
+    links:
+      - client_1
+      - client_2
+    networks:
+      - internal
+
+
+networks:
+  internal:
+    attachable: true
+    ipam:
+      config:
+        - subnet: 172.10.0.0/16

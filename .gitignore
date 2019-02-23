@@ -1,0 +1,13 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+client/client
+server/server
+
+*.test
+
+*.out
+vendor/
+clients.json

@@ -1,0 +1,26 @@
+global:
+  scrape_interval:     30s
+  evaluation_interval: 20s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+  - job_name: 'scrape-proxy'
+    static_configs:
+      - targets: ['proxy:8080']
+
+  - job_name: 'scrape_proxy_sd'
+    scheme: http
+    proxy_url: 'http://proxy:8080'
+    honor_labels: true
+    metrics_path: '/metrics'
+
+    file_sd_configs:
+      - files: ['/prometheus/servicediscovery/clients.json']
+        refresh_interval: 1m
+
+    relabel_configs:
+    - source_labels: [__address__]
+      replacement: $1:8080
+      target_label: __address__
