@@ -1,5 +1,7 @@
 # scrape-proxy
 
+[![CircleCI](https://circleci.com/gh/mujx/scrape-proxy/tree/master.svg?style=svg)](https://circleci.com/gh/mujx/scrape-proxy/tree/master)
+
 scrape-proxy enables scraping of Prometheus metrics from hosts that are not
 directly accessible from Prometheus (e.g behind NAT).
 

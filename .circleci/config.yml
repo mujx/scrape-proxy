@@ -1,0 +1,12 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.9
+
+    working_directory: /go/src/github.com/mujx/scrape-proxy
+    steps:
+      - checkout
+
+      - run: make ensure
+      - run: make
