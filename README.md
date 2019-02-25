@@ -1,6 +1,7 @@
 # scrape-proxy
 
 [![CircleCI](https://circleci.com/gh/mujx/scrape-proxy/tree/master.svg?style=svg)](https://circleci.com/gh/mujx/scrape-proxy/tree/master)
+[![Docker Build](https://img.shields.io/docker/build/mujx/scrape-proxy.svg)](https://hub.docker.com/r/mujx/scrape-proxy)
 
 scrape-proxy enables scraping of Prometheus metrics from hosts that are not
 directly accessible from Prometheus (e.g behind NAT).
