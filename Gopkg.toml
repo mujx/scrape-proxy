@@ -41,10 +41,6 @@
   name = "gopkg.in/alecthomas/kingpin.v2"
   version = "2.2.6"
 
-[[constraint]]
-  name = "nanomsg.org/go/mangos/v2"
-  version = "2.0.1"
-
 [prune]
   go-tests = true
   unused-packages = true

@@ -3,17 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"gopkg.in/alecthomas/kingpin.v2"
-
-	"nanomsg.org/go/mangos/v2"
-	"nanomsg.org/go/mangos/v2/protocol/pub"
-	"nanomsg.org/go/mangos/v2/protocol/rep"
-	_ "nanomsg.org/go/mangos/v2/transport/all"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -25,8 +20,6 @@ import (
 
 // Configuration options.
 var (
-	pushUrl             = kingpin.Flag("push-url", "The endpoint to public scrape requests.").Default("tcp://*:5050").String()
-	pullUrl             = kingpin.Flag("pull-url", "The endpoint to to receive scrape results.").Default("tcp://*:5051").String()
 	httpAddr            = kingpin.Flag("web-url", "The endpoint to listen to for HTTP proxy requests.").Default(":8080").String()
 	logLevel            = kingpin.Flag("log-level", "Minimum log level to use (trace, debug, info, warn, error).").Default("info").String()
 	registrationTimeout = kingpin.Flag("timeout", "The amount for which a client should be considered connected.").Default("30s").Duration()
@@ -49,134 +42,6 @@ var (
 		[]string{"code"},
 	)
 )
-
-func SendScrapeRequests(state *utils.GlobalState, pushUrl string) {
-	var sock mangos.Socket
-	var err error
-
-	if sock, err = pub.NewSocket(); err != nil {
-		log.WithFields(log.Fields{
-			"err": string(err.Error()),
-		}).Error("Failed to create new PUB socket")
-		return
-	}
-
-	if err = sock.Listen(pushUrl); err != nil {
-		log.WithFields(log.Fields{
-			"pushUrl": pushUrl,
-			"err":     string(err.Error()),
-		}).Error("Failed to listen on PUB socket")
-		return
-	}
-
-	for {
-		req := state.GetNextScrapeRequest()
-
-		var clientId = utils.ExtractHost(&req)
-
-		log.WithFields(log.Fields{
-			"clientId": clientId,
-		}).Debug("Forwarding scrape request")
-
-		var surveyReq utils.SurveyRequest
-		surveyReq.ScrapeRequests = make(map[string]string)
-		surveyReq.ScrapeRequests[clientId] = req.RequestURI
-
-		val, err := json.Marshal(surveyReq)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"error": string(err.Error()),
-			}).Error("failed to serialize PUB request")
-			continue
-		}
-
-		var sb strings.Builder
-		sb.WriteString(clientId)
-		sb.WriteString(" ")
-		sb.WriteString(string(val))
-
-		if err = sock.Send([]byte(sb.String())); err != nil {
-			log.WithFields(log.Fields{
-				"err": string(err.Error()),
-			}).Error("Failed to send on PUB socket")
-			return
-		}
-	}
-
-}
-
-func HandleScrapeResponses(globalState *utils.GlobalState, pullUrl string) {
-	var sock mangos.Socket
-	var err error
-	var msg []byte
-
-	if sock, err = rep.NewSocket(); err != nil {
-		log.WithFields(log.Fields{
-			"err": string(err.Error()),
-		}).Error("Failed to create new REP socket")
-		return
-	}
-
-	if err = sock.Listen(pullUrl); err != nil {
-		log.WithFields(log.Fields{
-			"err": string(err.Error()),
-		}).Error("Failed to listen on REP socket")
-		return
-	}
-
-	for {
-		msg, err = sock.Recv()
-		if err != nil {
-			log.WithFields(log.Fields{
-				"error": string(err.Error()),
-			}).Error("Failed to receive REQ")
-			return
-		}
-
-		var response utils.SurveyResponse
-		if err := json.Unmarshal(msg, &response); err != nil {
-			log.WithFields(log.Fields{
-				"error": string(err.Error()),
-			}).Error("Failed to parse scrape response")
-			continue
-		}
-
-		// This channel will be used to communicate back to
-		// the http proxy handler the results of the scrape request.
-		clientChannel := globalState.GetClientChannel(response.Id)
-
-		if errValue, ok := response.Errors[response.Id]; ok {
-			// The client returned an error.
-			clientChannel <- response
-
-			log.WithFields(log.Fields{
-				"clientId": response.Id,
-				"err":      errValue,
-			}).Debug("Client returned with an error")
-		} else if _, ok := response.Payload[response.Id]; ok {
-			// The client returned succefully.
-			clientChannel <- response
-
-			log.WithFields(log.Fields{
-				"clientId": response.Id,
-			}).Debug("Client returned succefully")
-		} else {
-			// It's a heartbeat.
-			globalState.AddClient(response.Id)
-
-			log.WithFields(log.Fields{
-				"clientId": response.Id,
-			}).Debug("Received heartbeat")
-		}
-
-		err = sock.Send([]byte("OK"))
-		if err != nil {
-			log.WithFields(log.Fields{
-				"id": response.Id,
-			}).Error("Failed to ACK request from client")
-		}
-	}
-}
 
 type httpHandler struct {
 	state *utils.GlobalState
@@ -214,7 +79,12 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 
 	clientChannel := h.state.GetClientChannel(host)
 
-	h.state.SendScrapeRequest(*r)
+	// Convert the raw HTTP request to a SurveyRequest for the client.
+	var surveyReq utils.SurveyRequest
+	surveyReq.ScrapeRequests = make(map[string]string)
+	surveyReq.ScrapeRequests[host] = r.RequestURI
+
+	h.state.SendScrapeRequest(surveyReq, host)
 
 	response := <-clientChannel
 
@@ -238,16 +108,108 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *httpHandler) HandlePush(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	var res utils.SurveyResponse
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	clientChannel := h.state.GetClientChannel(res.Id)
+
+	if errValue, ok := res.Errors[res.Id]; ok {
+		// The client returned an error.
+		clientChannel <- res
+
+		log.WithFields(log.Fields{
+			"clientId": res.Id,
+			"err":      errValue,
+		}).Debug("Client returned with an error")
+	} else if _, ok := res.Payload[res.Id]; ok {
+		// The client returned succefully.
+		clientChannel <- res
+
+		log.WithFields(log.Fields{
+			"clientId": res.Id,
+		}).Debug("Client returned succefully")
+	} else {
+		// It's a heartbeat.
+		h.state.AddClient(res.Id)
+
+		log.WithFields(log.Fields{
+			"clientId": res.Id,
+		}).Debug("Received heartbeat")
+	}
+
+	w.WriteHeader(200)
+}
+
+func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	var pullRequest utils.PullRequest
+	err = json.Unmarshal(body, &pullRequest)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	// Return 404 for unmanaged client IDs.
+	if !h.state.IsClientAvailable(pullRequest.Id) {
+		w.WriteHeader(http.StatusNotFound)
+		errorJson := map[string]string{"error": fmt.Sprintf("client '%s' is not managed", pullRequest.Id)}
+		json.NewEncoder(w).Encode(errorJson)
+		return
+	}
+
+	log.WithFields(log.Fields{
+		"clientId": pullRequest.Id,
+	}).Debug("Received pull request")
+
+	clientChannel := h.state.GetIncomingRequestsChannel(pullRequest.Id)
+
+	select {
+	case req := <-clientChannel:
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(req)
+		return
+	case <-time.After(15 * time.Second):
+		// Timeout.
+		w.WriteHeader(504)
+		return
+	}
+}
+
 func newHTTPHandler(globalState *utils.GlobalState) *httpHandler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 
 	h := &httpHandler{mux: mux, state: globalState}
-	clientsPath := "/clients"
 
-	counter := httpAPICounter.MustCurryWith(prometheus.Labels{"path": clientsPath})
-	mux.Handle(clientsPath, promhttp.InstrumentHandlerCounter(counter, http.HandlerFunc(h.HandleListClients)))
-	counter.WithLabelValues("200")
+	handlers := map[string]http.HandlerFunc{
+		"/push":    h.HandlePush,
+		"/pull":    h.HandlePull,
+		"/clients": h.HandleListClients,
+	}
+
+	for path, handlerFunc := range handlers {
+		counter := httpAPICounter.MustCurryWith(prometheus.Labels{"path": path})
+		mux.Handle(path, promhttp.InstrumentHandlerCounter(counter, http.HandlerFunc(handlerFunc)))
+		counter.WithLabelValues("200")
+	}
 
 	h.proxy = promhttp.InstrumentHandlerCounter(httpProxyCounter, http.HandlerFunc(h.HandleProxyRequests))
 
@@ -270,25 +232,7 @@ func main() {
 	var globalState utils.GlobalState
 	globalState.Init(*registrationTimeout)
 
-	go func() {
-		for {
-			SendScrapeRequests(&globalState, *pushUrl)
-			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
-		}
-	}()
-
-	go func() {
-		for {
-			HandleScrapeResponses(&globalState, *pullUrl)
-			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
-		}
-	}()
-
-	log.WithFields(log.Fields{
-		"pushUrl":  *pushUrl,
-		"pullUrl":  *pullUrl,
-		"httpAddr": *httpAddr,
-	}).Info("scrape-proxy server started")
+	log.WithFields(log.Fields{"httpAddr": *httpAddr}).Info("scrape-proxy server started")
 
 	if err := http.ListenAndServe(*httpAddr, newHTTPHandler(&globalState)); err != nil {
 		log.WithFields(log.Fields{"error": string(err.Error())}).Error("failed to setup HTTP server")

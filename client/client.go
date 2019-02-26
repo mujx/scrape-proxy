@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -9,11 +10,6 @@ import (
 	"time"
 
 	"gopkg.in/alecthomas/kingpin.v2"
-
-	"nanomsg.org/go/mangos/v2"
-	"nanomsg.org/go/mangos/v2/protocol/req"
-	"nanomsg.org/go/mangos/v2/protocol/sub"
-	_ "nanomsg.org/go/mangos/v2/transport/all"
 
 	"github.com/satori/go.uuid"
 
@@ -24,207 +20,125 @@ import (
 
 // CLI configuration options.
 var (
-	pullUrl           = kingpin.Flag("pull-url", "The endpoint to listen for scrape requests.").Default("tcp://127.0.0.1:5050").String()
-	pushUrl           = kingpin.Flag("push-url", "The endpoint to send scrape responses & heartbeat.").Default("tcp://127.0.0.1:5051").String()
+	proxyUrl          = kingpin.Flag("proxy-url", "The proxy endpoint.").Default("http://localhost:8080").String()
 	remoteFQDN        = kingpin.Flag("remote-fqdn", "FQDN to forward the scrape requests.").Default("localhost").String()
 	logLevel          = kingpin.Flag("log-level", "Minimum log level to use (trace, debug, info, warn, error).").Default("info").String()
 	heartbeatInterval = kingpin.Flag("heartbeat", "The heartbeat duration.").Default("10s").Duration()
 )
 
-func StartHeartBeat(clientName string, pushUrl string, interval time.Duration) {
-	var sock mangos.Socket
-	var err error
-
-	if sock, err = req.NewSocket(); err != nil {
-		log.WithFields(log.Fields{
-			"clientName": clientName,
-			"err":        string(err.Error()),
-		}).Error("Failed to create REQ socket")
-		return
-	}
-
-	if err = sock.Dial(pushUrl); err != nil {
-		log.WithFields(log.Fields{
-			"clientName": clientName,
-			"url":        pushUrl,
-			"err":        string(err.Error()),
-		}).Error("Failed to connect to REP socket")
-		return
-	}
-
+func StartHeartBeat(clientName string, proxyUrl string, interval time.Duration) {
 	for {
-		time.Sleep(interval)
 		log.WithFields(log.Fields{"clientName": clientName}).Debug("Initiating heartbeat")
 
 		var heartbeat utils.SurveyResponse
 		heartbeat.Id = clientName
 
-		value, err := json.Marshal(heartbeat)
+		body, err := json.Marshal(heartbeat)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"msg": string(err.Error()),
 				"err": string(err.Error()),
 			}).Error("Failed to serialize heartbeat")
-			break
+			continue
 		}
 
-		if err = sock.Send(value); err != nil {
+		_, err = http.Post(proxyUrl+"/push", "application/json", bytes.NewBuffer(body))
+		if err != nil {
 			log.WithFields(log.Fields{
 				"clientName": clientName,
 				"err":        string(err.Error()),
 			}).Error("Failed to send heartbeat")
-			break
+			continue
 		}
 
-		if _, err = sock.Recv(); err != nil {
-			log.WithFields(log.Fields{
-				"pullUrl": pullUrl,
-				"err":     string(err.Error()),
-			}).Error("Failed to receive ack on heartbeat")
-			break
-		}
+		time.Sleep(interval)
 	}
-
-	sock.Close()
 }
 
-func SendScrapeResults(clientName string, pushUrl string, responseChannel chan utils.SurveyResponse) {
-	var sock mangos.Socket
-	var err error
-
-	if sock, err = req.NewSocket(); err != nil {
-		log.WithFields(log.Fields{
-			"clientName": clientName,
-			"err":        string(err.Error()),
-		}).Error("Failed to create REQ socket")
-		return
-	}
-
-	if err = sock.Dial(pushUrl); err != nil {
-		log.WithFields(log.Fields{
-			"clientName": clientName,
-			"url":        pushUrl,
-			"err":        string(err.Error()),
-		}).Error("Failed to connect to REP socket")
-		return
-	}
-
+func SendScrapeResults(clientName string, proxyUrl string, responseChannel chan utils.SurveyResponse) {
 	for {
 		// We wait until a scrape request has been executed so we can
 		// send the result back to the server.
 		response := <-responseChannel
 
-		value, err := json.Marshal(response)
+		body, err := json.Marshal(response)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"msg":        string(err.Error()),
 				"clientName": clientName,
 			}).Error("failed to serialize scrape response")
-			return
+			continue
 		}
 
-		if err = sock.Send(value); err != nil {
+		_, err = http.Post(proxyUrl+"/push", "application/json", bytes.NewBuffer(body))
+		if err != nil {
 			log.WithFields(log.Fields{
 				"clientName": clientName,
 				"err":        string(err.Error()),
 			}).Error("Failed to send scrape results")
-			break
-		}
-
-		if _, err = sock.Recv(); err != nil {
-			log.WithFields(log.Fields{
-				"pullUrl": *pullUrl,
-				"err":     string(err.Error()),
-			}).Error("Failed to receive response")
-			break
+			continue
 		}
 	}
-
-	sock.Close()
 }
 
-func WaitForScrapeRequests(clientName string, pullUrl string, remoteFQDN string, responseChannel chan utils.SurveyResponse) {
-	var sock mangos.Socket
-	var err error
-	var msg []byte
-
-	if sock, err = sub.NewSocket(); err != nil {
-		log.WithFields(log.Fields{
-			"clientName": clientName,
-			"err":        string(err.Error()),
-		}).Error("Failed to create new SUB socket")
-		return
-	}
-
-	if err = sock.Dial(pullUrl); err != nil {
-		log.WithFields(log.Fields{
-			"clientName": clientName,
-			"url":        pushUrl,
-			"err":        string(err.Error()),
-		}).Error("Failed to connect to PUB socket")
-		return
-	}
-
-	// Subscribe to events that are only meant for this client.
-	err = sock.SetOption(mangos.OptionSubscribe, []byte(clientName))
-
-	if err != nil {
-		log.WithFields(log.Fields{
-			"topic": clientName,
-			"err":   string(err.Error()),
-		}).Error("Failed to subscripe")
-		return
-	}
-
+func WaitForScrapeRequests(clientName string, proxyUrl string, remoteFQDN string, responseChannel chan utils.SurveyResponse) {
 	for {
-		if msg, err = sock.Recv(); err != nil {
+		var req utils.PullRequest
+		req.Id = clientName
+
+		body, err := json.Marshal(req)
+		if err != nil {
 			log.WithFields(log.Fields{
-				"topic": clientName,
-				"err":   string(err.Error()),
-			}).Error("Failed to receive")
-			return
-		}
-
-		parts := strings.SplitN(string(msg), " ", 2)
-
-		log.WithFields(
-			log.Fields{
-				"payload":    string(msg),
-				"clientName": clientName,
-			}).Debug("Scrape request received")
-
-		if len(parts) != 2 {
-			log.WithFields(log.Fields{
-				"msg": string(msg),
+				"msg": string(err.Error()),
 				"err": string(err.Error()),
-			}).Error("Failed to parse the header of the message")
+			}).Error("Failed to serialize heartbeat")
+			time.Sleep(time.Duration(time.Second))
+
 			continue
 		}
 
-		// Remove the header of the message.
-		header, body := parts[0], parts[1]
-
-		if header != clientName {
+		resp, err := http.Post(proxyUrl+"/pull", "application/json", bytes.NewBuffer(body))
+		if err != nil {
 			log.WithFields(log.Fields{
-				"header":     header,
-				"clientName": clientName,
-			}).Error("Received scrape request for another client")
+				"id":  clientName,
+				"err": string(err.Error()),
+			}).Error("Failed to receive any scrape requests")
+			time.Sleep(time.Duration(time.Second))
 			continue
 		}
 
-		go DoScrape(clientName, []byte(body), remoteFQDN, responseChannel)
+		if resp.StatusCode == 404 || resp.StatusCode >= 500 {
+			time.Sleep(time.Duration(time.Second))
+			log.WithFields(log.Fields{
+				"statusCode": resp.StatusCode,
+			}).Debug("No scrape requests received")
+			continue
+		}
+
+		b, err := ioutil.ReadAll(resp.Body)
+		defer resp.Body.Close()
+		if err != nil {
+			log.WithFields(log.Fields{
+				"msg": string(err.Error()),
+			}).Warning("failed to read response body")
+			time.Sleep(time.Duration(time.Second))
+			continue
+		}
+
+		var request utils.SurveyRequest
+		if err := json.Unmarshal(b, &request); err != nil {
+			log.WithFields(log.Fields{
+				"error": string(err.Error()),
+				"body":  string(b),
+			}).Error("failed to parse scrape request")
+			continue
+		}
+
+		go DoScrape(clientName, request, remoteFQDN, responseChannel)
 	}
 }
 
-func DoScrape(name string, msg []byte, remoteFQDN string, responseChannel chan utils.SurveyResponse) {
-	var request utils.SurveyRequest
-	if err := json.Unmarshal(msg, &request); err != nil {
-		log.WithFields(log.Fields{
-			"error": string(err.Error()),
-		}).Error("failed to parse scrape request")
-		return
-	}
-
+func DoScrape(name string, request utils.SurveyRequest, remoteFQDN string, responseChannel chan utils.SurveyResponse) {
 	var response utils.SurveyResponse
 	response.Id = name
 	response.Errors = make(map[string]string)
@@ -237,7 +151,7 @@ func DoScrape(name string, msg []byte, remoteFQDN string, responseChannel chan u
 
 		log.WithFields(
 			log.Fields{
-				"uri":        string(msg),
+				"uri":        request,
 				"clientName": name,
 			}).Debug("Performing scrape request")
 
@@ -286,27 +200,12 @@ func main() {
 	responseChannel := make(chan utils.SurveyResponse, 256)
 
 	log.WithFields(log.Fields{
-		"pullUrl":    *pullUrl,
-		"pushUrl":    *pushUrl,
+		"proxyUrl":   *proxyUrl,
 		"clientName": clientName,
 	}).Info("scrape-proxy client started")
 
-	go func() {
-		for {
-			StartHeartBeat(clientName.String(), *pushUrl, *heartbeatInterval)
-			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
-		}
-	}()
+	go StartHeartBeat(clientName.String(), *proxyUrl, *heartbeatInterval)
+	go SendScrapeResults(clientName.String(), *proxyUrl, responseChannel)
 
-	go func() {
-		for {
-			SendScrapeResults(clientName.String(), *pushUrl, responseChannel)
-			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
-		}
-	}()
-
-	for {
-		WaitForScrapeRequests(clientName.String(), *pullUrl, *remoteFQDN, responseChannel)
-		time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
-	}
+	WaitForScrapeRequests(clientName.String(), *proxyUrl, *remoteFQDN, responseChannel)
 }

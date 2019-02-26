@@ -25,6 +25,10 @@ func InitLogger(level log.Level) {
 	log.SetLevel(level)
 }
 
+type PullRequest struct {
+	Id string `json:"id"`
+}
+
 type SurveyRequest struct {
 	ScrapeRequests map[string]string `json:"scrape_requests"`
 }
@@ -36,9 +40,9 @@ type SurveyResponse struct {
 }
 
 type GlobalState struct {
-	// The HTTP server uses the channel to communicate with the service
-	// discovery mechanism for new alerts.
-	IncomingScrapes chan http.Request
+	// The HTTP server uses these channels to send to each client
+	// new scrape requests.
+	IncomingScrapes map[string]chan SurveyRequest
 	// The list of clients that have been respond to the latest service
 	// discovery query.
 	ClientList map[string]time.Time
@@ -51,8 +55,9 @@ type GlobalState struct {
 }
 
 func (state *GlobalState) Init(registrationTimeout time.Duration) {
-	state.IncomingScrapes = make(chan http.Request, 20)
+	state.IncomingScrapes = map[string]chan SurveyRequest{}
 	state.ClientChannels = map[string]chan SurveyResponse{}
+
 	state.ClientList = map[string]time.Time{}
 	state.registrationTimeout = registrationTimeout
 
@@ -72,7 +77,8 @@ func (state *GlobalState) cleanUpOldClients() {
 	// it are dropped so the channels is unused.
 	limit := time.Now().Add(-state.registrationTimeout * 5)
 	deletedClients := 0
-	deletedChannels := 0
+	deletedOutChannels := 0
+	deletedInChannels := 0
 
 	for k, ts := range state.ClientList {
 		if ts.Before(limit) {
@@ -81,33 +87,49 @@ func (state *GlobalState) cleanUpOldClients() {
 
 			if _, ok := state.ClientChannels[k]; ok {
 				delete(state.ClientChannels, k)
-				deletedChannels++
+				deletedOutChannels++
+			}
+
+			if _, ok := state.IncomingScrapes[k]; ok {
+				delete(state.IncomingScrapes, k)
+				deletedInChannels++
 			}
 		}
 	}
 
 	log.WithFields(log.Fields{
-		"deletedClients":    deletedClients,
-		"remainingClients":  len(state.ClientList),
-		"deletedChannels":   deletedChannels,
-		"remainingChannels": len(state.ClientChannels),
+		"deletedClients":       deletedClients,
+		"remainingClients":     len(state.ClientList),
+		"deletedOutChannels":   deletedOutChannels,
+		"deletedInChannels":    deletedInChannels,
+		"remainingOutChannels": len(state.ClientChannels),
+		"remainingInChannels":  len(state.IncomingScrapes),
 	}).Info("Removed old clients & channels")
 }
 
-func (state *GlobalState) SendScrapeRequest(req http.Request) {
+func (state *GlobalState) SendScrapeRequest(req SurveyRequest, clientId string) {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	state.IncomingScrapes <- req
+	if _, ok := state.IncomingScrapes[clientId]; !ok {
+		state.IncomingScrapes[clientId] = make(chan SurveyRequest, 256)
+	}
+
+	state.IncomingScrapes[clientId] <- req
 }
 
 func (state *GlobalState) IsClientAvailable(id string) bool {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	_, ok := state.ClientList[id]
+	t, ok := state.ClientList[id]
 
-	return ok
+	if ok {
+		limit := time.Now().Add(-state.registrationTimeout)
+		return limit.Before(t)
+	}
+
+	return false
 }
 
 func (state *GlobalState) GetClientChannel(id string) chan SurveyResponse {
@@ -117,24 +139,16 @@ func (state *GlobalState) GetClientChannel(id string) chan SurveyResponse {
 	return state.ClientChannels[id]
 }
 
-func (state *GlobalState) DeleteClientChannel(id string) {
-	state.mutex.Lock()
-	defer state.mutex.Unlock()
-
-	ch, ok := state.ClientChannels[id]
-
-	if ok {
-		close(ch)
-		delete(state.ClientChannels, id)
-	}
-}
-
 func (state *GlobalState) AddClient(clientId string) {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
 	if _, ok := state.ClientChannels[clientId]; !ok {
-		state.ClientChannels[clientId] = make(chan SurveyResponse, 100)
+		state.ClientChannels[clientId] = make(chan SurveyResponse, 256)
+	}
+
+	if _, ok := state.IncomingScrapes[clientId]; !ok {
+		state.IncomingScrapes[clientId] = make(chan SurveyRequest, 256)
 	}
 
 	state.ClientList[clientId] = time.Now()
@@ -156,8 +170,8 @@ func (state *GlobalState) GetClientList() []string {
 	return known
 }
 
-func (state *GlobalState) GetNextScrapeRequest() http.Request {
-	return <-state.IncomingScrapes
+func (state *GlobalState) GetIncomingRequestsChannel(clientId string) chan SurveyRequest {
+	return state.IncomingScrapes[clientId]
 }
 
 func ExtractHost(req *http.Request) string {

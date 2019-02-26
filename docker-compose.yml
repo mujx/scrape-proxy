@@ -31,8 +31,8 @@ services:
     restart: always
     environment:
       - "RUN_MODE=client"
-      - "CLIENT_PUSH_URL=tcp://proxy:5051"
-      - "CLIENT_PULL_URL=tcp://proxy:5050"
+      - "CLIENT_PROXY_URL=http://proxy:8080"
+      - "CLIENT_HEARTBEAT=10s"
       - "CLIENT_REMOTE_FQDN=sample_app"
       - "CLIENT_LOG_LEVEL=debug"
     links:

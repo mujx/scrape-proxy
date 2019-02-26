@@ -2,14 +2,6 @@
 
 
 [[projects]]
-  digest = "1:f9ae348e1f793dcf9ed930ed47136a67343dbd6809c5c91391322267f4476892"
-  name = "github.com/Microsoft/go-winio"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "1a8911d1ed007260465c3bfbbc785ac6915a0bb8"
-  version = "v0.4.12"
-
-[[projects]]
   branch = "master"
   digest = "1:315c5f2f60c76d89b871c73f9bd5fe689cad96597afd50fb9992228ef80bdd34"
   name = "github.com/alecthomas/template"
@@ -43,14 +35,6 @@
   pruneopts = "UT"
   revision = "aa810b61a9c79d51363740d207bb46cf8e620ed5"
   version = "v1.2.0"
-
-[[projects]]
-  digest = "1:7b5c6e2eeaa9ae5907c391a91c132abfd5c9e8a784a341b5625e750c67e6825d"
-  name = "github.com/gorilla/websocket"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "66b9c49e59c6c48f0ffce28c2d8b8a5678502c6d"
-  version = "v1.4.0"
 
 [[projects]]
   digest = "1:0a69a1c0db3591fcefb47f115b224592c8dfa4368b7ba9fae509d5e16cdc95c8"
@@ -157,32 +141,6 @@
   revision = "947dcec5ba9c011838740e680966fd7087a71d0d"
   version = "v2.2.6"
 
-[[projects]]
-  digest = "1:f4d3c7ca949c3661c0e47b65c3c87441769f8a762a243060d6a0297adf4d35f6"
-  name = "nanomsg.org/go/mangos/v2"
-  packages = [
-    ".",
-    "errors",
-    "internal/core",
-    "protocol",
-    "protocol/pub",
-    "protocol/rep",
-    "protocol/req",
-    "protocol/sub",
-    "protocol/xpub",
-    "transport",
-    "transport/all",
-    "transport/inproc",
-    "transport/ipc",
-    "transport/tcp",
-    "transport/tlstcp",
-    "transport/ws",
-    "transport/wss",
-  ]
-  pruneopts = "UT"
-  revision = "63f66a65137b9a648ac9f7bf0160b4a4d17d7999"
-  version = "v2.0.1"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
@@ -192,12 +150,6 @@
     "github.com/satori/go.uuid",
     "github.com/sirupsen/logrus",
     "gopkg.in/alecthomas/kingpin.v2",
-    "nanomsg.org/go/mangos/v2",
-    "nanomsg.org/go/mangos/v2/protocol/pub",
-    "nanomsg.org/go/mangos/v2/protocol/rep",
-    "nanomsg.org/go/mangos/v2/protocol/req",
-    "nanomsg.org/go/mangos/v2/protocol/sub",
-    "nanomsg.org/go/mangos/v2/transport/all",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
