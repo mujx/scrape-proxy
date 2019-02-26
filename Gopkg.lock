@@ -112,7 +112,7 @@
     "xfs",
   ]
   pruneopts = "UT"
-  revision = "e4d4a2206da023361ed100d85c5f2cf9c8364e9f"
+  revision = "6ed1f7e1041181781dd2826d3001075d011a80cc"
 
 [[projects]]
   digest = "1:274f67cb6fed9588ea2521ecdac05a6d62a8c51c074c1fccc6a49a40ba80e925"
@@ -136,7 +136,7 @@
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
   pruneopts = "UT"
-  revision = "ffb98f73852f696ea2bb21a617a5c4b3e067a439"
+  revision = "7f87c0fbb88b590338857bcb720678c2583d4dea"
 
 [[projects]]
   branch = "master"
@@ -147,7 +147,7 @@
     "windows",
   ]
   pruneopts = "UT"
-  revision = "cd391775e71e684db52b63df9affd58269495083"
+  revision = "cc5685c2db1239775905f3911f0067c0fa74762f"
 
 [[projects]]
   digest = "1:c06d9e11d955af78ac3bbb26bd02e01d2f61f689e1a3bce2ef6fb683ef8a7f2d"
@@ -158,15 +158,18 @@
   version = "v2.2.6"
 
 [[projects]]
-  digest = "1:1d51a1070cf46a58dd3c0d394528e6e300e21d068fddf00c8352ad032a96c2ab"
+  digest = "1:f4d3c7ca949c3661c0e47b65c3c87441769f8a762a243060d6a0297adf4d35f6"
   name = "nanomsg.org/go/mangos/v2"
   packages = [
     ".",
     "errors",
     "internal/core",
     "protocol",
-    "protocol/respondent",
-    "protocol/surveyor",
+    "protocol/pub",
+    "protocol/rep",
+    "protocol/req",
+    "protocol/sub",
+    "protocol/xpub",
     "transport",
     "transport/all",
     "transport/inproc",
@@ -190,8 +193,10 @@
     "github.com/sirupsen/logrus",
     "gopkg.in/alecthomas/kingpin.v2",
     "nanomsg.org/go/mangos/v2",
-    "nanomsg.org/go/mangos/v2/protocol/respondent",
-    "nanomsg.org/go/mangos/v2/protocol/surveyor",
+    "nanomsg.org/go/mangos/v2/protocol/pub",
+    "nanomsg.org/go/mangos/v2/protocol/rep",
+    "nanomsg.org/go/mangos/v2/protocol/req",
+    "nanomsg.org/go/mangos/v2/protocol/sub",
     "nanomsg.org/go/mangos/v2/transport/all",
   ]
   solver-name = "gps-cdcl"

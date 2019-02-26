@@ -22,28 +22,16 @@ services:
      - "8080:8080"
     environment:
       - "RUN_MODE=server"
-      - "SERVER_SURVEY_TIMEOUT=4"
     networks:
      - internal
 
-  client_1:
+  client:
     build: .
     restart: always
     environment:
       - "RUN_MODE=client"
-      - "CLIENT_PROXY_ENDPOINT=tcp://proxy:5050"
-      - "CLIENT_REMOTE_FQDN=sample_app"
-    links:
-      - proxy
-    networks:
-     - internal
-
-  client_2:
-    build: .
-    restart: always
-    environment:
-      - "RUN_MODE=client"
-      - "CLIENT_PROXY_ENDPOINT=tcp://proxy:5050"
+      - "CLIENT_PUSH_URL=tcp://proxy:5051"
+      - "CLIENT_PULL_URL=tcp://proxy:5050"
       - "CLIENT_REMOTE_FQDN=sample_app"
     links:
       - proxy
@@ -55,8 +43,7 @@ services:
     image: quay.io/brancz/prometheus-example-app:v0.1.0
     restart: always
     links:
-      - client_1
-      - client_2
+      - client
     networks:
       - internal
 
