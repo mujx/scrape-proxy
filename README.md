@@ -9,15 +9,10 @@ directly accessible from Prometheus (e.g behind NAT).
 
 #### Server
 
-The server will have 3 different ports where clients & Prometheus can connect.
-The `pull` port so the clients can push their scrape responses and heartbeat
-(connected clients are available in `/clients`), the `push` port to publish
-scrape requests and the `web` port for the HTTP interface.
-
 ```bash
 docker run --rm -e RUN_MODE=server \
     -e SERVER_WEB_URL=":8080" \
-    -p 5050:5050 -p 5051:5051 -p 8080:8080 \
+    -p 8080:8080 \
     mujx/scrape-proxy
 ```
 
@@ -26,8 +21,7 @@ docker run --rm -e RUN_MODE=server \
 ```bash
 docker run --rm \
     -e RUN_MODE=client \
-    -e CLIENT_PUSH_URL="tcp://proxy_host:5051" \
-    -e CLIENT_PULL_URL="tcp://proxy_host:5050" \
+    -e CLIENT_PROXY_URL="http://proxy_host:8080" \
     -e CLIENT_REMOTE_FQDN=example.org \
     mujx/scrape-proxy
 ```
