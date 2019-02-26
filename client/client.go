@@ -121,7 +121,6 @@ func WaitForScrapeRequests(clientName string, proxyUrl string, remoteFQDN string
 			log.WithFields(log.Fields{
 				"msg": string(err.Error()),
 			}).Warning("failed to read response body")
-			time.Sleep(time.Duration(time.Second))
 			continue
 		}
 
@@ -190,7 +189,7 @@ func main() {
 	if err != nil {
 		log.WithFields(log.Fields{
 			"err": string(err.Error()),
-		}).Info("failed to parse log level")
+		}).Error("failed to parse log level")
 		os.Exit(1)
 	}
 	utils.InitLogger(level)

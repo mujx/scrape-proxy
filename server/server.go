@@ -175,6 +175,8 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notify := w.(http.CloseNotifier).CloseNotify()
+
 	log.WithFields(log.Fields{
 		"clientId": pullRequest.Id,
 	}).Debug("Received pull request")
@@ -185,6 +187,11 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	case req := <-clientChannel:
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(req)
+		return
+	case <-notify:
+		log.WithFields(log.Fields{
+			"clientId": pullRequest.Id,
+		}).Error("Connection closed abruptly")
 		return
 	case <-time.After(15 * time.Second):
 		// Timeout.
@@ -223,7 +230,7 @@ func main() {
 	if err != nil {
 		log.WithFields(log.Fields{
 			"err": string(err.Error()),
-		}).Info("failed to parse log level")
+		}).Error("failed to parse log level")
 		os.Exit(1)
 	}
 

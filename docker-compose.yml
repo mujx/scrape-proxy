@@ -18,23 +18,27 @@ services:
     hostname: proxy
     build: .
     restart: always
+    cap_add:
+      - NET_ADMIN
     ports:
      - "8080:8080"
     environment:
       - "RUN_MODE=server"
-      - "SERVER_LOG_LEVEL=debug"
+      - "SERVER_LOG_LEVEL=info"
     networks:
      - internal
 
   client:
     build: .
     restart: always
+    cap_add:
+      - NET_ADMIN
     environment:
       - "RUN_MODE=client"
       - "CLIENT_PROXY_URL=http://proxy:8080"
       - "CLIENT_HEARTBEAT=10s"
       - "CLIENT_REMOTE_FQDN=sample_app"
-      - "CLIENT_LOG_LEVEL=debug"
+      - "CLIENT_LOG_LEVEL=info"
     links:
       - proxy
     networks:
