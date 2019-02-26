@@ -49,23 +49,43 @@ func (state *GlobalState) Init(registrationTimeout time.Duration) {
 	state.ClientChannels = map[string]chan SurveyResponse{}
 	state.ClientList = map[string]time.Time{}
 	state.registrationTimeout = registrationTimeout
+
+	go func() {
+		for range time.Tick(1 * time.Minute) {
+			state.cleanUpOldClients()
+		}
+	}()
 }
 
 func (state *GlobalState) cleanUpOldClients() {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	limit := time.Now().Add(-state.registrationTimeout)
-	deleted := 0
-
-	// TODO: Clean up old channels also.
+	// We pick a high enough timeout so the channels will not be used.
+	// After a client is no longer in the list, all incoming requests for
+	// it are dropped so the channels is unused.
+	limit := time.Now().Add(-state.registrationTimeout * 5)
+	deletedClients := 0
+	deletedChannels := 0
 
 	for k, ts := range state.ClientList {
 		if ts.Before(limit) {
 			delete(state.ClientList, k)
-			deleted++
+			deletedClients++
+
+			if _, ok := state.ClientChannels[k]; ok {
+				delete(state.ClientChannels, k)
+				deletedChannels++
+			}
 		}
 	}
+
+	log.WithFields(log.Fields{
+		"deletedClients":    deletedClients,
+		"remainingClients":  len(state.ClientList),
+		"deletedChannels":   deletedChannels,
+		"remainingChannels": len(state.ClientChannels),
+	}).Info("Removed old clients & channels")
 }
 
 func (state *GlobalState) SendScrapeRequest(req http.Request) {

@@ -54,7 +54,6 @@ func StartHeartBeat(clientName string, pushUrl string, interval time.Duration) {
 
 	for {
 		time.Sleep(interval)
-		log.WithFields(log.Fields{"id": clientName}).Debug("Sending heartbeat")
 
 		var heartbeat utils.SurveyResponse
 		heartbeat.Id = clientName
