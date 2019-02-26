@@ -22,6 +22,7 @@ services:
      - "8080:8080"
     environment:
       - "RUN_MODE=server"
+      - "SERVER_LOG_LEVEL=debug"
     networks:
      - internal
 
@@ -33,6 +34,7 @@ services:
       - "CLIENT_PUSH_URL=tcp://proxy:5051"
       - "CLIENT_PULL_URL=tcp://proxy:5050"
       - "CLIENT_REMOTE_FQDN=sample_app"
+      - "CLIENT_LOG_LEVEL=debug"
     links:
       - proxy
     networks:

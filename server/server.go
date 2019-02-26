@@ -28,6 +28,7 @@ var (
 	pushUrl             = kingpin.Flag("push-url", "The endpoint to public scrape requests.").Default("tcp://*:5050").String()
 	pullUrl             = kingpin.Flag("pull-url", "The endpoint to to receive scrape results.").Default("tcp://*:5051").String()
 	httpAddr            = kingpin.Flag("web-url", "The endpoint to listen to for HTTP proxy requests.").Default(":8080").String()
+	logLevel            = kingpin.Flag("log-level", "Minimum log level to use (trace, debug, info, warn, error).").Default("info").String()
 	registrationTimeout = kingpin.Flag("timeout", "The amount for which a client should be considered connected.").Default("30s").Duration()
 )
 
@@ -72,6 +73,10 @@ func SendScrapeRequests(state *utils.GlobalState, pushUrl string) {
 		req := state.GetNextScrapeRequest()
 
 		var clientId = utils.ExtractHost(&req)
+
+		log.WithFields(log.Fields{
+			"clientId": clientId,
+		}).Debug("Forwarding scrape request")
 
 		var surveyReq utils.SurveyRequest
 		surveyReq.ScrapeRequests = make(map[string]string)
@@ -140,15 +145,28 @@ func HandleScrapeResponses(globalState *utils.GlobalState, pullUrl string) {
 		// the http proxy handler the results of the scrape request.
 		clientChannel := globalState.GetClientChannel(response.Id)
 
-		if _, ok := response.Errors[response.Id]; ok {
+		if errValue, ok := response.Errors[response.Id]; ok {
 			// The client returned an error.
 			clientChannel <- response
+
+			log.WithFields(log.Fields{
+				"clientId": response.Id,
+				"err":      errValue,
+			}).Debug("Client returned with an error")
 		} else if _, ok := response.Payload[response.Id]; ok {
 			// The client returned succefully.
 			clientChannel <- response
+
+			log.WithFields(log.Fields{
+				"clientId": response.Id,
+			}).Debug("Client returned succefully")
 		} else {
 			// It's a heartbeat.
 			globalState.AddClient(response.Id)
+
+			log.WithFields(log.Fields{
+				"clientId": response.Id,
+			}).Debug("Received heartbeat")
 		}
 
 		err = sock.Send([]byte("OK"))
@@ -239,7 +257,15 @@ func newHTTPHandler(globalState *utils.GlobalState) *httpHandler {
 func main() {
 	kingpin.Parse()
 
-	utils.InitLogger()
+	level, err := log.ParseLevel(*logLevel)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"err": string(err.Error()),
+		}).Info("failed to parse log level")
+		os.Exit(1)
+	}
+
+	utils.InitLogger(level)
 
 	var globalState utils.GlobalState
 	globalState.Init(*registrationTimeout)
@@ -247,14 +273,14 @@ func main() {
 	go func() {
 		for {
 			SendScrapeRequests(&globalState, *pushUrl)
-			time.Sleep(time.Second)
+			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
 		}
 	}()
 
 	go func() {
 		for {
 			HandleScrapeResponses(&globalState, *pullUrl)
-			time.Sleep(time.Second)
+			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
 		}
 	}()
 

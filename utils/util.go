@@ -10,13 +10,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func InitLogger() {
+var RetryInterval = 5
+
+func InitLogger(level log.Level) {
 	log.SetFormatter(&log.TextFormatter{
 		DisableColors: true,
-		FullTimestamp: true,
-	})
+		FullTimestamp: false,
+		FieldMap: log.FieldMap{
+			log.FieldKeyLevel: "level",
+			log.FieldKeyTime:  "ts",
+			log.FieldKeyMsg:   "msg",
+		}})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(level)
 }
 
 type SurveyRequest struct {

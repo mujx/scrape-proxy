@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -21,13 +22,12 @@ import (
 	utils "github.com/mujx/scrape-proxy/utils"
 )
 
-var retryInterval = 3
-
 // CLI configuration options.
 var (
 	pullUrl           = kingpin.Flag("pull-url", "The endpoint to listen for scrape requests.").Default("tcp://127.0.0.1:5050").String()
 	pushUrl           = kingpin.Flag("push-url", "The endpoint to send scrape responses & heartbeat.").Default("tcp://127.0.0.1:5051").String()
 	remoteFQDN        = kingpin.Flag("remote-fqdn", "FQDN to forward the scrape requests.").Default("localhost").String()
+	logLevel          = kingpin.Flag("log-level", "Minimum log level to use (trace, debug, info, warn, error).").Default("info").String()
 	heartbeatInterval = kingpin.Flag("heartbeat", "The heartbeat duration.").Default("10s").Duration()
 )
 
@@ -54,6 +54,7 @@ func StartHeartBeat(clientName string, pushUrl string, interval time.Duration) {
 
 	for {
 		time.Sleep(interval)
+		log.WithFields(log.Fields{"clientName": clientName}).Debug("Initiating heartbeat")
 
 		var heartbeat utils.SurveyResponse
 		heartbeat.Id = clientName
@@ -186,6 +187,12 @@ func WaitForScrapeRequests(clientName string, pullUrl string, remoteFQDN string,
 
 		parts := strings.SplitN(string(msg), " ", 2)
 
+		log.WithFields(
+			log.Fields{
+				"payload":    string(msg),
+				"clientName": clientName,
+			}).Debug("Scrape request received")
+
 		if len(parts) != 2 {
 			log.WithFields(log.Fields{
 				"msg": string(msg),
@@ -228,6 +235,12 @@ func DoScrape(name string, msg []byte, remoteFQDN string, responseChannel chan u
 	if ok {
 		uri := strings.Replace(remoteURI, response.Id, remoteFQDN, -1)
 
+		log.WithFields(
+			log.Fields{
+				"uri":        string(msg),
+				"clientName": name,
+			}).Debug("Performing scrape request")
+
 		resp, err := http.Get(uri)
 		if err != nil {
 			log.WithFields(log.Fields{
@@ -259,7 +272,14 @@ func DoScrape(name string, msg []byte, remoteFQDN string, responseChannel chan u
 func main() {
 	kingpin.Parse()
 
-	utils.InitLogger()
+	level, err := log.ParseLevel(*logLevel)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"err": string(err.Error()),
+		}).Info("failed to parse log level")
+		os.Exit(1)
+	}
+	utils.InitLogger(level)
 
 	clientName := uuid.NewV4()
 
@@ -274,19 +294,19 @@ func main() {
 	go func() {
 		for {
 			StartHeartBeat(clientName.String(), *pushUrl, *heartbeatInterval)
-			time.Sleep(time.Duration(time.Second) * time.Duration(retryInterval))
+			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
 		}
 	}()
 
 	go func() {
 		for {
 			SendScrapeResults(clientName.String(), *pushUrl, responseChannel)
-			time.Sleep(time.Duration(time.Second) * time.Duration(retryInterval))
+			time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
 		}
 	}()
 
 	for {
 		WaitForScrapeRequests(clientName.String(), *pullUrl, *remoteFQDN, responseChannel)
-		time.Sleep(time.Duration(time.Second) * time.Duration(retryInterval))
+		time.Sleep(time.Duration(time.Second) * time.Duration(utils.RetryInterval))
 	}
 }
