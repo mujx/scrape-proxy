@@ -25,14 +25,18 @@ func InitLogger(level log.Level) {
 	log.SetLevel(level)
 }
 
+// The clients will send this payload to start waiting for incoming scrape requests.
 type PullRequest struct {
 	Id string `json:"id"`
 }
 
+// The server will send back a proxy request.
 type ProxyRequest struct {
 	ScrapeRequests map[string]string `json:"scrape_requests"`
 }
 
+// The client's response to a scrape request containing the scrape response
+// and any potential errors.
 type ProxyResponse struct {
 	Id      string            `json:"id"`
 	Payload map[string]string `json:"payload"`
