@@ -46,23 +46,22 @@ type ProxyResponse struct {
 type GlobalState struct {
 	// The HTTP server uses these channels to send to each client
 	// new scrape requests.
-	IncomingScrapes map[string]chan ProxyRequest
-	// The list of clients that have been respond to the latest service
-	// discovery query.
-	ClientList map[string]time.Time
+	incomingScrapes map[string]chan ProxyRequest
+	// The list of clients that appear to be active.
+	clientList map[string]time.Time
 	// The HTTP server waits on those channels for a scrape response from
 	// each connect client.
-	ClientChannels map[string]chan ProxyResponse
+	clientChannels map[string]chan ProxyResponse
 
 	registrationTimeout time.Duration
 	mutex               sync.Mutex
 }
 
 func (state *GlobalState) Init(registrationTimeout time.Duration) {
-	state.IncomingScrapes = map[string]chan ProxyRequest{}
-	state.ClientChannels = map[string]chan ProxyResponse{}
+	state.incomingScrapes = map[string]chan ProxyRequest{}
+	state.clientChannels = map[string]chan ProxyResponse{}
 
-	state.ClientList = map[string]time.Time{}
+	state.clientList = map[string]time.Time{}
 	state.registrationTimeout = registrationTimeout
 
 	go func() {
@@ -84,18 +83,18 @@ func (state *GlobalState) cleanUpOldClients() {
 	deletedOutChannels := 0
 	deletedInChannels := 0
 
-	for k, ts := range state.ClientList {
+	for k, ts := range state.clientList {
 		if ts.Before(limit) {
-			delete(state.ClientList, k)
+			delete(state.clientList, k)
 			deletedClients++
 
-			if _, ok := state.ClientChannels[k]; ok {
-				delete(state.ClientChannels, k)
+			if _, ok := state.clientChannels[k]; ok {
+				delete(state.clientChannels, k)
 				deletedOutChannels++
 			}
 
-			if _, ok := state.IncomingScrapes[k]; ok {
-				delete(state.IncomingScrapes, k)
+			if _, ok := state.incomingScrapes[k]; ok {
+				delete(state.incomingScrapes, k)
 				deletedInChannels++
 			}
 		}
@@ -103,11 +102,11 @@ func (state *GlobalState) cleanUpOldClients() {
 
 	log.WithFields(log.Fields{
 		"deletedClients":       deletedClients,
-		"remainingClients":     len(state.ClientList),
+		"remainingClients":     len(state.clientList),
 		"deletedOutChannels":   deletedOutChannels,
 		"deletedInChannels":    deletedInChannels,
-		"remainingOutChannels": len(state.ClientChannels),
-		"remainingInChannels":  len(state.IncomingScrapes),
+		"remainingOutChannels": len(state.clientChannels),
+		"remainingInChannels":  len(state.incomingScrapes),
 	}).Info("Removed old clients & channels")
 }
 
@@ -115,18 +114,18 @@ func (state *GlobalState) SendScrapeRequest(req ProxyRequest, clientId string) {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	if _, ok := state.IncomingScrapes[clientId]; !ok {
-		state.IncomingScrapes[clientId] = make(chan ProxyRequest, 256)
+	if _, ok := state.incomingScrapes[clientId]; !ok {
+		state.incomingScrapes[clientId] = make(chan ProxyRequest, 256)
 	}
 
-	state.IncomingScrapes[clientId] <- req
+	state.incomingScrapes[clientId] <- req
 }
 
 func (state *GlobalState) IsClientAvailable(id string) bool {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	t, ok := state.ClientList[id]
+	t, ok := state.clientList[id]
 
 	if ok {
 		limit := time.Now().Add(-state.registrationTimeout)
@@ -140,22 +139,22 @@ func (state *GlobalState) GetClientChannel(id string) chan ProxyResponse {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	return state.ClientChannels[id]
+	return state.clientChannels[id]
 }
 
 func (state *GlobalState) AddClient(clientId string) {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
-	if _, ok := state.ClientChannels[clientId]; !ok {
-		state.ClientChannels[clientId] = make(chan ProxyResponse, 256)
+	if _, ok := state.clientChannels[clientId]; !ok {
+		state.clientChannels[clientId] = make(chan ProxyResponse, 256)
 	}
 
-	if _, ok := state.IncomingScrapes[clientId]; !ok {
-		state.IncomingScrapes[clientId] = make(chan ProxyRequest, 256)
+	if _, ok := state.incomingScrapes[clientId]; !ok {
+		state.incomingScrapes[clientId] = make(chan ProxyRequest, 256)
 	}
 
-	state.ClientList[clientId] = time.Now()
+	state.clientList[clientId] = time.Now()
 }
 
 func (state *GlobalState) GetClientList() []string {
@@ -163,9 +162,9 @@ func (state *GlobalState) GetClientList() []string {
 	defer state.mutex.Unlock()
 
 	limit := time.Now().Add(-state.registrationTimeout)
-	known := make([]string, 0, len(state.ClientList))
+	known := make([]string, 0, len(state.clientList))
 
-	for k, t := range state.ClientList {
+	for k, t := range state.clientList {
 		if limit.Before(t) {
 			known = append(known, k)
 		}
@@ -175,7 +174,7 @@ func (state *GlobalState) GetClientList() []string {
 }
 
 func (state *GlobalState) GetIncomingRequestsChannel(clientId string) chan ProxyRequest {
-	return state.IncomingScrapes[clientId]
+	return state.incomingScrapes[clientId]
 }
 
 func ExtractHost(req *http.Request) string {
