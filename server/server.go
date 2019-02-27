@@ -79,12 +79,12 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 
 	clientChannel := h.state.GetClientChannel(host)
 
-	// Convert the raw HTTP request to a SurveyRequest for the client.
-	var surveyReq utils.SurveyRequest
-	surveyReq.ScrapeRequests = make(map[string]string)
-	surveyReq.ScrapeRequests[host] = r.RequestURI
+	// Convert the raw HTTP request to a ProxyRequest for the client.
+	var proxyReq utils.ProxyRequest
+	proxyReq.ScrapeRequests = make(map[string]string)
+	proxyReq.ScrapeRequests[host] = r.RequestURI
 
-	h.state.SendScrapeRequest(surveyReq, host)
+	h.state.SendScrapeRequest(proxyReq, host)
 
 	response := <-clientChannel
 
@@ -116,7 +116,7 @@ func (h *httpHandler) HandlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var res utils.SurveyResponse
+	var res utils.ProxyResponse
 	err = json.Unmarshal(body, &res)
 	if err != nil {
 		http.Error(w, err.Error(), 500)

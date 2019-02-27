@@ -28,9 +28,11 @@ var (
 
 func StartHeartBeat(clientName string, proxyUrl string, interval time.Duration) {
 	for {
+		time.Sleep(interval)
+
 		log.WithFields(log.Fields{"clientName": clientName}).Debug("Initiating heartbeat")
 
-		var heartbeat utils.SurveyResponse
+		var heartbeat utils.ProxyResponse
 		heartbeat.Id = clientName
 
 		body, err := json.Marshal(heartbeat)
@@ -48,14 +50,11 @@ func StartHeartBeat(clientName string, proxyUrl string, interval time.Duration) 
 				"clientName": clientName,
 				"err":        string(err.Error()),
 			}).Error("Failed to send heartbeat")
-			continue
 		}
-
-		time.Sleep(interval)
 	}
 }
 
-func SendScrapeResults(clientName string, proxyUrl string, responseChannel chan utils.SurveyResponse) {
+func SendScrapeResults(clientName string, proxyUrl string, responseChannel chan utils.ProxyResponse) {
 	for {
 		// We wait until a scrape request has been executed so we can
 		// send the result back to the server.
@@ -81,7 +80,7 @@ func SendScrapeResults(clientName string, proxyUrl string, responseChannel chan 
 	}
 }
 
-func WaitForScrapeRequests(clientName string, proxyUrl string, remoteFQDN string, responseChannel chan utils.SurveyResponse) {
+func WaitForScrapeRequests(clientName string, proxyUrl string, remoteFQDN string, responseChannel chan utils.ProxyResponse) {
 	for {
 		var req utils.PullRequest
 		req.Id = clientName
@@ -124,7 +123,7 @@ func WaitForScrapeRequests(clientName string, proxyUrl string, remoteFQDN string
 			continue
 		}
 
-		var request utils.SurveyRequest
+		var request utils.ProxyRequest
 		if err := json.Unmarshal(b, &request); err != nil {
 			log.WithFields(log.Fields{
 				"error": string(err.Error()),
@@ -137,8 +136,8 @@ func WaitForScrapeRequests(clientName string, proxyUrl string, remoteFQDN string
 	}
 }
 
-func DoScrape(name string, request utils.SurveyRequest, remoteFQDN string, responseChannel chan utils.SurveyResponse) {
-	var response utils.SurveyResponse
+func DoScrape(name string, request utils.ProxyRequest, remoteFQDN string, responseChannel chan utils.ProxyResponse) {
+	var response utils.ProxyResponse
 	response.Id = name
 	response.Errors = make(map[string]string)
 	response.Payload = make(map[string]string)
@@ -196,7 +195,7 @@ func main() {
 
 	clientName := uuid.NewV4()
 
-	responseChannel := make(chan utils.SurveyResponse, 256)
+	responseChannel := make(chan utils.ProxyResponse, 256)
 
 	log.WithFields(log.Fields{
 		"proxyUrl":   *proxyUrl,

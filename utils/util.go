@@ -29,11 +29,11 @@ type PullRequest struct {
 	Id string `json:"id"`
 }
 
-type SurveyRequest struct {
+type ProxyRequest struct {
 	ScrapeRequests map[string]string `json:"scrape_requests"`
 }
 
-type SurveyResponse struct {
+type ProxyResponse struct {
 	Id      string            `json:"id"`
 	Payload map[string]string `json:"payload"`
 	Errors  map[string]string `json:"errors"`
@@ -42,21 +42,21 @@ type SurveyResponse struct {
 type GlobalState struct {
 	// The HTTP server uses these channels to send to each client
 	// new scrape requests.
-	IncomingScrapes map[string]chan SurveyRequest
+	IncomingScrapes map[string]chan ProxyRequest
 	// The list of clients that have been respond to the latest service
 	// discovery query.
 	ClientList map[string]time.Time
 	// The HTTP server waits on those channels for a scrape response from
 	// each connect client.
-	ClientChannels map[string]chan SurveyResponse
+	ClientChannels map[string]chan ProxyResponse
 
 	registrationTimeout time.Duration
 	mutex               sync.Mutex
 }
 
 func (state *GlobalState) Init(registrationTimeout time.Duration) {
-	state.IncomingScrapes = map[string]chan SurveyRequest{}
-	state.ClientChannels = map[string]chan SurveyResponse{}
+	state.IncomingScrapes = map[string]chan ProxyRequest{}
+	state.ClientChannels = map[string]chan ProxyResponse{}
 
 	state.ClientList = map[string]time.Time{}
 	state.registrationTimeout = registrationTimeout
@@ -107,12 +107,12 @@ func (state *GlobalState) cleanUpOldClients() {
 	}).Info("Removed old clients & channels")
 }
 
-func (state *GlobalState) SendScrapeRequest(req SurveyRequest, clientId string) {
+func (state *GlobalState) SendScrapeRequest(req ProxyRequest, clientId string) {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
 	if _, ok := state.IncomingScrapes[clientId]; !ok {
-		state.IncomingScrapes[clientId] = make(chan SurveyRequest, 256)
+		state.IncomingScrapes[clientId] = make(chan ProxyRequest, 256)
 	}
 
 	state.IncomingScrapes[clientId] <- req
@@ -132,7 +132,7 @@ func (state *GlobalState) IsClientAvailable(id string) bool {
 	return false
 }
 
-func (state *GlobalState) GetClientChannel(id string) chan SurveyResponse {
+func (state *GlobalState) GetClientChannel(id string) chan ProxyResponse {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
@@ -144,11 +144,11 @@ func (state *GlobalState) AddClient(clientId string) {
 	defer state.mutex.Unlock()
 
 	if _, ok := state.ClientChannels[clientId]; !ok {
-		state.ClientChannels[clientId] = make(chan SurveyResponse, 256)
+		state.ClientChannels[clientId] = make(chan ProxyResponse, 256)
 	}
 
 	if _, ok := state.IncomingScrapes[clientId]; !ok {
-		state.IncomingScrapes[clientId] = make(chan SurveyRequest, 256)
+		state.IncomingScrapes[clientId] = make(chan ProxyRequest, 256)
 	}
 
 	state.ClientList[clientId] = time.Now()
@@ -170,7 +170,7 @@ func (state *GlobalState) GetClientList() []string {
 	return known
 }
 
-func (state *GlobalState) GetIncomingRequestsChannel(clientId string) chan SurveyRequest {
+func (state *GlobalState) GetIncomingRequestsChannel(clientId string) chan ProxyRequest {
 	return state.IncomingScrapes[clientId]
 }
 
