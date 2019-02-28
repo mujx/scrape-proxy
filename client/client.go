@@ -194,16 +194,17 @@ func main() {
 	utils.InitLogger(level)
 
 	clientName := uuid.NewV4()
+	proxyUrl := strings.TrimRight(*proxyUrl, "/")
 
 	responseChannel := make(chan utils.ProxyResponse, 256)
 
 	log.WithFields(log.Fields{
-		"proxyUrl":   *proxyUrl,
+		"proxyUrl":   proxyUrl,
 		"clientName": clientName,
 	}).Info("scrape-proxy client started")
 
-	go StartHeartBeat(clientName.String(), *proxyUrl, *heartbeatInterval)
-	go SendScrapeResults(clientName.String(), *proxyUrl, responseChannel)
+	go StartHeartBeat(clientName.String(), proxyUrl, *heartbeatInterval)
+	go SendScrapeResults(clientName.String(), proxyUrl, responseChannel)
 
-	WaitForScrapeRequests(clientName.String(), *proxyUrl, *remoteFQDN, responseChannel)
+	WaitForScrapeRequests(clientName.String(), proxyUrl, *remoteFQDN, responseChannel)
 }
