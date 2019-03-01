@@ -62,6 +62,7 @@ func (h *httpHandler) HandleListClients(w http.ResponseWriter, r *http.Request) 
 		targets = append(targets, &targetGroup{Targets: []string{v}, Labels: make(map[string]string)})
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(targets)
 }
 
@@ -90,6 +91,8 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 
 	if error, ok := response.Errors[host]; ok {
 		w.WriteHeader(500)
+		w.Header().Set("Content-Type", "application/json")
+
 		errorJson := map[string]string{"error": error}
 		json.NewEncoder(w).Encode(errorJson)
 	} else if payload, ok := response.Payload[host]; ok {
@@ -186,6 +189,8 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	select {
 	case req := <-clientChannel:
 		w.WriteHeader(200)
+		w.Header().Set("Content-Type", "application/json")
+
 		json.NewEncoder(w).Encode(req)
 		return
 	case <-notify:
