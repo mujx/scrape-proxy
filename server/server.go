@@ -21,8 +21,9 @@ import (
 // Configuration options.
 var (
 	httpAddr            = kingpin.Flag("web-url", "The endpoint to listen to for HTTP proxy requests.").Default(":8080").String()
-	logLevel            = kingpin.Flag("log-level", "Minimum log level to use (trace, debug, info, warn, error).").Default("info").String()
+	logLevel            = kingpin.Flag("log-level", "Minimum log level to use (debug, info, warn, error).").Default("info").String()
 	registrationTimeout = kingpin.Flag("timeout", "The amount for which a client should be considered connected.").Default("30s").Duration()
+	pollTimeout         = kingpin.Flag("poll-timeout", "The server will timeout clients waiting for a scrape request after this value.").Default("20s").Duration()
 )
 
 var (
@@ -198,7 +199,7 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 			"clientId": pullRequest.Id,
 		}).Error("Connection closed abruptly")
 		return
-	case <-time.After(15 * time.Second):
+	case <-time.After((*pollTimeout)):
 		// Timeout.
 		w.WriteHeader(504)
 		return
