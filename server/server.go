@@ -108,8 +108,25 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 	// Forward the scrape response to the appropriate client through a channel.
 	h.state.SendScrapeRequest(proxyReq, host)
 
+	notify := w.(http.CloseNotifier).CloseNotify()
+
+	var response utils.ProxyResponse
+
+	select {
 	// Wait for the response from the client.
-	response := <-clientResponseChannel
+	case response = <-clientResponseChannel:
+		break
+	case <-notify:
+		log.WithFields(log.Fields{
+			"clientId": host,
+		}).Warn("Scrape request closed abruptly by the client")
+		return
+	case <-r.Context().Done():
+		log.WithFields(log.Fields{
+			"clientId": host,
+		}).Warn("Scrape request is closed")
+		return
+	}
 
 	if error, ok := response.Errors[host]; ok {
 		log.WithFields(log.Fields{
