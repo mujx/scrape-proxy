@@ -125,6 +125,14 @@ func (state *GlobalState) IsClientAvailable(id string) bool {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
+	if _, ok := state.incomingScrapes[id]; !ok {
+		return false
+	}
+
+	if _, ok := state.clientChannels[id]; !ok {
+		return false
+	}
+
 	t, ok := state.clientList[id]
 
 	if ok {

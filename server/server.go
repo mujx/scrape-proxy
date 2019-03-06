@@ -23,7 +23,7 @@ var (
 	httpAddr            = kingpin.Flag("web-url", "The endpoint to listen to for HTTP proxy requests.").Default(":8080").String()
 	logLevel            = kingpin.Flag("log-level", "Minimum log level to use (debug, info, warn, error).").Default("info").String()
 	registrationTimeout = kingpin.Flag("timeout", "The amount for which a client should be considered connected.").Default("30s").Duration()
-	pollTimeout         = kingpin.Flag("poll-timeout", "The server will timeout clients waiting for a scrape request after this value.").Default("20s").Duration()
+	pollTimeout         = kingpin.Flag("poll-timeout", "The server will timeout clients waiting for a scrape request after this value.").Default("15s").Duration()
 )
 
 var (
@@ -72,6 +72,10 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 
 	// Return 404 for unmanaged client IDs.
 	if !h.state.IsClientAvailable(host) {
+		log.WithFields(log.Fields{
+			"clientId": host,
+		}).Warn("Ignoring scrape request for un-registered client")
+
 		w.WriteHeader(http.StatusNotFound)
 		errorJson := map[string]string{"error": fmt.Sprintf("client '%s' is not managed", r.RequestURI)}
 		json.NewEncoder(w).Encode(errorJson)
@@ -79,26 +83,50 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	clientChannel := h.state.GetClientChannel(host)
+	clientResponseChannel := h.state.GetClientChannel(host)
+	if clientResponseChannel == nil {
+		log.WithFields(log.Fields{
+			"clientId": host,
+		}).Error("Scrape request for client with no channel to send the scrape results")
+		errorJson := map[string]string{"error": fmt.Sprintf("client '%s' doesn't have a results channel", r.RequestURI)}
+
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(errorJson)
+
+		return
+	}
 
 	// Convert the raw HTTP request to a ProxyRequest for the client.
 	var proxyReq utils.ProxyRequest
 	proxyReq.ScrapeRequests = make(map[string]string)
 	proxyReq.ScrapeRequests[host] = r.RequestURI
 
+	log.WithFields(log.Fields{
+		"clientId": host,
+	}).Debug("Sending scrape request to client")
+
+	// Forward the scrape response to the appropriate client through a channel.
 	h.state.SendScrapeRequest(proxyReq, host)
 
-	response := <-clientChannel
+	// Wait for the response from the client.
+	response := <-clientResponseChannel
 
 	if error, ok := response.Errors[host]; ok {
+		log.WithFields(log.Fields{
+			"clientId": host,
+			"error":    error,
+		}).Warn("Scrape request failed for client")
+
 		w.WriteHeader(500)
 		w.Header().Set("Content-Type", "application/json")
-
 		errorJson := map[string]string{"error": error}
 		json.NewEncoder(w).Encode(errorJson)
 	} else if payload, ok := response.Payload[host]; ok {
 		w.Write([]byte(payload))
 	} else {
+		log.WithFields(log.Fields{
+			"clientId": host,
+		}).Error("No error or response was received from client")
 		w.WriteHeader(500)
 	}
 }
@@ -129,7 +157,7 @@ func (h *httpHandler) HandlePush(w http.ResponseWriter, r *http.Request) {
 
 	clientChannel := h.state.GetClientChannel(res.Id)
 
-	if errValue, ok := res.Errors[res.Id]; ok {
+	if errValue, ok := res.Errors[res.Id]; ok && clientChannel != nil {
 		// The client returned an error.
 		clientChannel <- res
 
@@ -137,7 +165,7 @@ func (h *httpHandler) HandlePush(w http.ResponseWriter, r *http.Request) {
 			"clientId": res.Id,
 			"err":      errValue,
 		}).Debug("Client returned with an error")
-	} else if _, ok := res.Payload[res.Id]; ok {
+	} else if _, ok := res.Payload[res.Id]; ok && clientChannel != nil {
 		// The client returned succefully.
 		clientChannel <- res
 
@@ -173,6 +201,10 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	// Return 404 for unmanaged client IDs.
 	if !h.state.IsClientAvailable(pullRequest.Id) {
+		log.WithFields(log.Fields{
+			"clientId": pullRequest.Id,
+		}).Warn("Pull request from un-registered client")
+
 		w.WriteHeader(http.StatusNotFound)
 		errorJson := map[string]string{"error": fmt.Sprintf("client '%s' is not managed", pullRequest.Id)}
 		json.NewEncoder(w).Encode(errorJson)
@@ -187,19 +219,40 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	clientChannel := h.state.GetIncomingRequestsChannel(pullRequest.Id)
 
+	if clientChannel == nil {
+		log.WithFields(log.Fields{
+			"clientId": pullRequest.Id,
+		}).Error("Registered client with nil channel for incoming requests")
+		w.WriteHeader(500)
+
+		return
+	}
+
+	log.WithFields(log.Fields{
+		"clientId": pullRequest.Id,
+	}).Debug("Client is waiting for a scrape request")
+
 	select {
 	case req := <-clientChannel:
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
+		log.WithFields(log.Fields{
+			"clientId": pullRequest.Id,
+			"response": req,
+		}).Debug("Client returned")
 
 		json.NewEncoder(w).Encode(req)
 		return
 	case <-notify:
 		log.WithFields(log.Fields{
 			"clientId": pullRequest.Id,
-		}).Error("Connection closed abruptly")
+		}).Error("Connection closed abruptly by the client")
 		return
 	case <-time.After((*pollTimeout)):
+		log.WithFields(log.Fields{
+			"clientId": pullRequest.Id,
+		}).Debug("Timeout reached. Closing connection")
+
 		// Timeout.
 		w.WriteHeader(504)
 		return
@@ -245,7 +298,12 @@ func main() {
 	var globalState utils.GlobalState
 	globalState.Init(*registrationTimeout)
 
-	log.WithFields(log.Fields{"httpAddr": *httpAddr}).Info("scrape-proxy server started")
+	log.WithFields(log.Fields{
+		"httpAddr":            *httpAddr,
+		"logLevel":            *logLevel,
+		"registrationTimeout": *registrationTimeout,
+		"pollTimeout":         *pollTimeout,
+	}).Info("scrape-proxy server started")
 
 	if err := http.ListenAndServe(*httpAddr, newHTTPHandler(&globalState)); err != nil {
 		log.WithFields(log.Fields{"error": string(err.Error())}).Error("failed to setup HTTP server")
