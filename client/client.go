@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ShowMax/go-fqdn"
 	"gopkg.in/alecthomas/kingpin.v2"
-
-	"github.com/satori/go.uuid"
 
 	log "github.com/sirupsen/logrus"
 
@@ -193,7 +192,8 @@ func main() {
 	}
 	utils.InitLogger(level)
 
-	clientName := uuid.NewV4()
+	clientName := fqdn.Get()
+
 	proxyUrl := strings.TrimRight(*proxyUrl, "/")
 
 	responseChannel := make(chan utils.ProxyResponse, 256)
@@ -203,8 +203,8 @@ func main() {
 		"clientName": clientName,
 	}).Info("scrape-proxy client started")
 
-	go StartHeartBeat(clientName.String(), proxyUrl, *heartbeatInterval)
-	go SendScrapeResults(clientName.String(), proxyUrl, responseChannel)
+	go StartHeartBeat(clientName, proxyUrl, *heartbeatInterval)
+	go SendScrapeResults(clientName, proxyUrl, responseChannel)
 
-	WaitForScrapeRequests(clientName.String(), proxyUrl, *remoteFQDN, responseChannel)
+	WaitForScrapeRequests(clientName, proxyUrl, *remoteFQDN, responseChannel)
 }

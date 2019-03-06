@@ -16,4 +16,9 @@ image:
 ensure:
 	dep ensure -update
 
+binary: image
+	docker run --name temp-container-name scrape-proxy /bin/true
+	docker cp temp-container-name:/app/client client.out
+	docker rm temp-container-name
+
 .PHONY: client server
