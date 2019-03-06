@@ -129,7 +129,15 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 			"payloadSize": len(payload),
 		}).Debug("Scrape request succeeded")
 
-		w.Write([]byte(payload))
+		data := []byte(payload)
+
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+		if _, err := w.Write(data); err != nil {
+			log.WithFields(log.Fields{
+				"clientId": host,
+				"error":    string(err.Error()),
+			}).Error("Failed to write response from client")
+		}
 
 		return
 	}
