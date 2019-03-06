@@ -121,14 +121,23 @@ func (h *httpHandler) HandleProxyRequests(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Content-Type", "application/json")
 		errorJson := map[string]string{"error": error}
 		json.NewEncoder(w).Encode(errorJson)
+
+		return
 	} else if payload, ok := response.Payload[host]; ok {
-		w.Write([]byte(payload))
-	} else {
 		log.WithFields(log.Fields{
-			"clientId": host,
-		}).Error("No error or response was received from client")
-		w.WriteHeader(500)
+			"clientId":    host,
+			"payloadSize": len(payload),
+		}).Debug("Scrape request succeeded")
+
+		w.Write([]byte(payload))
+
+		return
 	}
+
+	log.WithFields(log.Fields{
+		"clientId": host,
+	}).Error("No error or response was received from client")
+	w.WriteHeader(500)
 }
 
 // ServeHTTP discriminates between proxy requests (e.g. from Prometheus) and other requests (e.g. from the Client).
@@ -238,8 +247,8 @@ func (h *httpHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		log.WithFields(log.Fields{
 			"clientId": pullRequest.Id,
-			"response": req,
-		}).Debug("Client returned")
+			"request":  req,
+		}).Debug("Scrape request was sent to the client")
 
 		json.NewEncoder(w).Encode(req)
 		return
