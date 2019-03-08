@@ -11,6 +11,7 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	log "github.com/sirupsen/logrus"
@@ -27,17 +28,24 @@ var (
 )
 
 var (
-	httpAPICounter = prometheus.NewCounterVec(
+	activeClientsGauge = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "scrape_proxy_active_clients",
+			Help: "The number of clients that are currently connected",
+		},
+	)
+
+	httpAPICounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "pushprox_http_requests_total",
+			Name: "scrape_proxy_http_requests_total",
 			Help: "Number of http api requests.",
 		},
 		[]string{"code", "path"},
 	)
 
-	httpProxyCounter = prometheus.NewCounterVec(
+	httpProxyCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "pushproxy_proxied_requests_total",
+			Name: "scrape_proxy_proxied_requests_total",
 			Help: "Number of http proxy requests.",
 		},
 		[]string{"code"},
@@ -210,6 +218,9 @@ func (h *httpHandler) HandlePush(w http.ResponseWriter, r *http.Request) {
 		// It's a heartbeat.
 		h.state.AddClient(res.Id)
 
+		// Update the Prometheus metric.
+		activeClientsGauge.Set(float64(len(h.state.GetClientList())))
+
 		log.WithFields(log.Fields{
 			"clientId": res.Id,
 		}).Debug("Received heartbeat")
@@ -331,6 +342,15 @@ func main() {
 
 	var globalState utils.GlobalState
 	globalState.Init(*registrationTimeout)
+
+	go func() {
+		for range time.Tick(time.Minute) {
+			globalState.CleanUpOldClients()
+
+			// Update the Prometheus metric.
+			activeClientsGauge.Set(float64(len(globalState.GetClientList())))
+		}
+	}()
 
 	log.WithFields(log.Fields{
 		"httpAddr":            *httpAddr,

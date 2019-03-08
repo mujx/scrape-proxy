@@ -63,15 +63,9 @@ func (state *GlobalState) Init(registrationTimeout time.Duration) {
 
 	state.clientList = map[string]time.Time{}
 	state.registrationTimeout = registrationTimeout
-
-	go func() {
-		for range time.Tick(1 * time.Minute) {
-			state.cleanUpOldClients()
-		}
-	}()
 }
 
-func (state *GlobalState) cleanUpOldClients() {
+func (state *GlobalState) CleanUpOldClients() {
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
 
